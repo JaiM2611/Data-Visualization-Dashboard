@@ -1,5 +1,5 @@
 .app {
-  max-width: 1200px;
+  max-width: 1400px;
   margin: 0 auto;
   padding: 1.25rem;
   display: grid;
@@ -30,6 +30,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+  align-items: center;
 }
 
 .panel {
@@ -158,11 +159,67 @@ label {
   font-size: 0.9rem;
 }
 
-.canvas {
+.builder-shell {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
-  gap: 0.75rem;
+  grid-template-columns: minmax(240px, 280px) 1fr;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.palette {
+  flex-direction: column;
+}
+
+.palette-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.palette-item {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.palette-item.dragging {
+  opacity: 0.8;
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+}
+
+.palette-hint {
+  margin: 0.5rem 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.palette-actions {
+  display: flex;
+  gap: 0.5rem;
   margin-top: 0.75rem;
+}
+
+.canvas {
+  min-height: 380px;
+  border: 1px dashed var(--border);
+  border-radius: 0.75rem;
+  padding: 0.5rem;
+  background: var(--surface);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.canvas-over {
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+}
+
+.grid-layout {
+  min-height: 320px;
+}
+
+.grid-layout .react-grid-item {
+  transition: none;
 }
 
 .widget-card {
@@ -172,6 +229,8 @@ label {
   padding: 0.8rem;
   display: grid;
   gap: 0.75rem;
+  grid-template-rows: auto auto 1fr;
+  height: 100%;
 }
 
 .widget-card > header {
@@ -183,6 +242,20 @@ label {
 
 .widget-card > header input {
   flex: 1;
+}
+
+.widget-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex: 1;
+}
+
+.widget-drag-handle {
+  cursor: grab;
+  font-size: 1rem;
+  color: var(--muted);
+  user-select: none;
 }
 
 .placeholder {
@@ -233,7 +306,7 @@ label {
     padding: 0.8rem;
   }
 
-  .canvas {
+  .builder-shell {
     grid-template-columns: 1fr;
   }
 }
