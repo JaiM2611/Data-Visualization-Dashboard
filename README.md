@@ -1,73 +1,49 @@
-# React + TypeScript + Vite
+# Data Visualization Dashboard
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+PRD-aligned implementation of an advanced data visualization dashboard using React + TypeScript + Vite.
 
-Currently, two official plugins are available:
+## Implemented (step-by-step phases)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+### Phase 1: Foundation
+- CSV upload and parsing (PapaParse)
+- Column type inference (number/date/boolean/string)
+- Data preview table (first 50 rows)
 
-## React Compiler
+### Phase 2: Core charts
+- Widget types: Bar, Line, Area, Pie, KPI, Data Table
+- Axis and metric mapping
+- Aggregations: sum, avg, count, min, max, median
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### Phase 3: Dashboard builder
+- Widget palette to add cards
+- Per-widget configuration panel
+- Reorder and remove widgets
+- Undo/redo history (Ctrl/Cmd+Z, Ctrl/Cmd+Y)
 
-## Expanding the ESLint configuration
+### Phase 4: Filtering & real-time updates
+- Global filter panel with numeric/date/boolean/string modes
+- Live chart/table recomputation from filtered dataset
+- Filtered row count status
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+### Phase 5 (local persistence + share-ready stub)
+- Save/load dashboard state in localStorage
+- Share link generation (client-side stub) with clipboard copy
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+### UX and accessibility baseline
+- Light/dark theme toggle
+- Keyboard shortcuts for save and undo/redo
+- ARIA live status region for update feedback
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+## Run locally
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Validate
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run lint
+npm run build
 ```
