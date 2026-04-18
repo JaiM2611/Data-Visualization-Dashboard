@@ -1,0 +1,239 @@
+.app {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1.25rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.top-bar {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.top-bar h1 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.top-bar p {
+  margin: 0.4rem 0 0;
+  color: var(--muted);
+}
+
+.toolbar,
+.palette,
+.widget-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 1rem;
+}
+
+.panel h2,
+.preview h3 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+}
+
+button,
+input,
+select {
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  padding: 0.45rem 0.6rem;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled,
+input:disabled,
+select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.uploader {
+  display: flex;
+  gap: 0.8rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.metadata {
+  margin-top: 0.8rem;
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 0.8rem;
+}
+
+.badge.number {
+  background: #ecfeff;
+  color: #0e7490;
+}
+
+.badge.date {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.badge.boolean {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.badge.string {
+  background: #fefce8;
+  color: #a16207;
+}
+
+.suggestions {
+  margin: 0.85rem 0 0;
+  padding-left: 1rem;
+}
+
+.table-wrap {
+  overflow: auto;
+  margin-top: 0.75rem;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+th,
+td {
+  border: 1px solid var(--border);
+  text-align: left;
+  padding: 0.4rem;
+  white-space: nowrap;
+}
+
+td.null {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.filter-grid,
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0.7rem;
+}
+
+label {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+}
+
+.status {
+  color: var(--muted);
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.canvas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.widget-card {
+  border: 1px solid var(--border);
+  border-radius: 0.7rem;
+  background: var(--surface);
+  padding: 0.8rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.widget-card > header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.7rem;
+  align-items: center;
+}
+
+.widget-card > header input {
+  flex: 1;
+}
+
+.placeholder {
+  margin: 0.6rem 0;
+  color: var(--muted);
+}
+
+.kpi {
+  border: 1px dashed var(--border);
+  border-radius: 0.6rem;
+  padding: 1rem;
+  text-align: center;
+}
+
+.kpi span,
+.kpi strong,
+.kpi h3,
+.kpi p {
+  margin: 0;
+}
+
+.kpi strong {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.kpi h3 {
+  margin-top: 0.5rem;
+  font-size: 1rem;
+}
+
+.kpi p {
+  margin-top: 0.5rem;
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.share-link {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+}
+
+@media (max-width: 640px) {
+  .app {
+    padding: 0.8rem;
+  }
+
+  .canvas {
+    grid-template-columns: 1fr;
+  }
+}
