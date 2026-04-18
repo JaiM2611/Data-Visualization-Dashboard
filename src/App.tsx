@@ -228,7 +228,7 @@ function App() {
   const [shareLink, setShareLink] = useState('')
   const [status, setStatus] = useState('Ready.')
 
-  const widgets = history[historyIndex] ?? []
+  const widgets = useMemo(() => history[historyIndex] ?? [], [history, historyIndex])
   const selectedColumn = columns.find((column) => column.name === filter.column)
   const suggestions = useMemo(() => chartSuggestions(columns), [columns])
   const isSharedView = useMemo(() => new URLSearchParams(window.location.search).has('share'), [])
@@ -267,13 +267,22 @@ function App() {
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
         event.preventDefault()
-        saveDashboard()
+        const state: DashboardState = {
+          rows,
+          columns,
+          widgets,
+          fileName,
+          filter,
+          theme,
+        }
+        localStorage.setItem(DASHBOARD_STORAGE_KEY, JSON.stringify(state))
+        setStatus(`Saved ${new Date().toLocaleTimeString()}`)
       }
     }
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  })
+  }, [canUndo, canRedo, rows, columns, widgets, fileName, filter, theme])
 
   const filteredRows = useMemo(
     () => rows.filter((row) => applyFilter(row, selectedColumn, filter)),
