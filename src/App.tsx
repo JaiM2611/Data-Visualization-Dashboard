@@ -26,6 +26,7 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragMoveEvent,
   type KeyboardCoordinateGetter,
 } from '@dnd-kit/core'
 import {
@@ -395,6 +396,9 @@ function App() {
   const [shareLink, setShareLink] = useState('')
   const [status, setStatus] = useState('Ready.')
   const [currentBreakpoint, setCurrentBreakpoint] = useState<BreakpointKey>('xl')
+  const [dropPreview, setDropPreview] = useState<{ left: number; top: number; width: number; height: number } | null>(
+    null,
+  )
 
   const canvasRef = useRef<HTMLDivElement | null>(null)
   const layoutDraftRef = useRef<LayoutMap>(initialSnapshot.layouts)
@@ -732,7 +736,47 @@ function App() {
     useSensor(KeyboardSensor, { coordinateGetter: keyboardCoordinates }),
   )
 
+  const handleDragMove = (event: DragMoveEvent) => {
+    const type = event.active.data.current?.type as WidgetType | undefined
+    if (!type || isSharedView || !columns.length) {
+      setDropPreview(null)
+      return
+    }
+    if (event.over?.id !== 'canvas-drop') {
+      setDropPreview(null)
+      return
+    }
+
+    const initial = event.active.rect.current?.initial
+    const containerRect = canvasRef.current?.getBoundingClientRect()
+
+    if (!initial || !containerRect) {
+      setDropPreview(null)
+      return
+    }
+
+    const dropCenter = {
+      x: initial.left + event.delta.x + initial.width / 2,
+      y: initial.top + event.delta.y + initial.height / 2,
+    }
+
+    const { x, y } = gridFromPoint(dropCenter, containerRect, currentBreakpoint)
+    const colWidth = columnWidth(containerRect.width, currentBreakpoint)
+    const width = DEFAULT_W * colWidth + GRID_MARGIN[0] * (DEFAULT_W - 1)
+    const height = DEFAULT_H * ROW_HEIGHT + GRID_MARGIN[1] * (DEFAULT_H - 1)
+    const left = GRID_PADDING[0] + x * (colWidth + GRID_MARGIN[0])
+    const top = GRID_PADDING[1] + y * (ROW_HEIGHT + GRID_MARGIN[1])
+
+    if (!Number.isFinite(left) || !Number.isFinite(top)) {
+      setDropPreview(null)
+      return
+    }
+
+    setDropPreview({ left, top, width, height })
+  }
+
   const handleDragEnd = (event: DragEndEvent) => {
+    setDropPreview(null)
     const type = event.active.data.current?.type as WidgetType | undefined
     if (!type || isSharedView) return
     if (!columns.length) {
@@ -955,7 +999,12 @@ function App() {
       <section className="panel">
         <h2>3) Dashboard Builder</h2>
 
-        <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+        <DndContext
+          sensors={sensors}
+          onDragMove={handleDragMove}
+          onDragEnd={handleDragEnd}
+          onDragCancel={() => setDropPreview(null)}
+        >
           <div className="builder-shell">
             <div className="palette" aria-label="Widget palette">
               <div className="palette-grid">
@@ -990,6 +1039,18 @@ function App() {
               }}
             >
               {!widgets.length && <p className="placeholder">Drag widgets here or click a palette button to start.</p>}
+              {dropPreview && (
+                <div
+                  aria-hidden="true"
+                  className="drop-preview"
+                  style={{
+                    left: `${dropPreview.left}px`,
+                    top: `${dropPreview.top}px`,
+                    width: `${dropPreview.width}px`,
+                    height: `${dropPreview.height}px`,
+                  }}
+                />
+              )}
 
               <ResponsiveGridLayout
                 className="grid-layout"
