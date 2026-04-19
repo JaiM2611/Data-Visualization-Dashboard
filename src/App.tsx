@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Papa from 'papaparse'
 import {
   Area,
@@ -17,6 +17,26 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useDroppable,
+  useDraggable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type KeyboardCoordinateGetter,
+} from '@dnd-kit/core'
+import {
+  Responsive,
+  WidthProvider,
+  type Layout,
+  type LayoutItem,
+  type ResponsiveLayouts,
+} from 'react-grid-layout/legacy'
+import 'react-grid-layout/css/styles.css'
+import 'react-resizable/css/styles.css'
 import './App.css'
 
 type Primitive = string | number | boolean | null
@@ -24,6 +44,7 @@ type Row = Record<string, Primitive>
 type ColumnType = 'number' | 'date' | 'boolean' | 'string'
 type WidgetType = 'bar' | 'line' | 'area' | 'pie' | 'kpi' | 'table'
 type Aggregation = 'sum' | 'avg' | 'count' | 'min' | 'max' | 'median'
+type BreakpointKey = 'xl' | 'md' | 'sm'
 
 interface ColumnMeta {
   name: string
@@ -39,10 +60,18 @@ interface WidgetConfig {
   aggregation: Aggregation
 }
 
+type LayoutMap = Record<BreakpointKey, LayoutItem[]>
+
+interface DashboardSnapshot {
+  widgets: WidgetConfig[]
+  layouts: LayoutMap
+}
+
 interface DashboardState {
   rows: Row[]
   columns: ColumnMeta[]
   widgets: WidgetConfig[]
+  layouts: LayoutMap
   fileName: string
   filter: FilterState
   theme: Theme
@@ -57,10 +86,23 @@ interface FilterState {
 
 type Theme = 'light' | 'dark'
 
-const DASHBOARD_STORAGE_KEY = 'data-viz-dashboard-v1'
+const ResponsiveGridLayout = WidthProvider(Responsive)
+
+const DASHBOARD_STORAGE_KEY = 'data-viz-dashboard-v2'
+const LEGACY_STORAGE_KEY = 'data-viz-dashboard-v1'
 const PIE_COLORS = ['#4f46e5', '#f97316', '#14b8a6', '#dc2626', '#eab308', '#0ea5e9', '#8b5cf6', '#22c55e']
 const aggregations: Aggregation[] = ['sum', 'avg', 'count', 'min', 'max', 'median']
 const widgetPalette: WidgetType[] = ['bar', 'line', 'area', 'pie', 'kpi', 'table']
+const BREAKPOINTS: Record<BreakpointKey, number> = { xl: 1200, md: 768, sm: 375 }
+const COLS: Record<BreakpointKey, number> = { xl: 12, md: 12, sm: 12 }
+const GRID_MARGIN: [number, number] = [12, 12]
+const GRID_PADDING: [number, number] = [12, 12]
+const DEFAULT_W = 4
+const DEFAULT_H = 3
+const MIN_W = 2
+const MIN_H = 2
+const ROW_HEIGHT = 46
+const initialSnapshot: DashboardSnapshot = { widgets: [], layouts: emptyLayouts() }
 
 function makeId() {
   return typeof crypto !== 'undefined' && 'randomUUID' in crypto
@@ -215,38 +257,156 @@ function emptyWidget(type: WidgetType, columns: ColumnMeta[]): WidgetConfig {
   }
 }
 
+function emptyLayouts(): LayoutMap {
+  return { xl: [], md: [], sm: [] }
+}
+
+function cloneLayouts(layouts: LayoutMap): LayoutMap {
+  return {
+    xl: layouts.xl.map((item) => ({ ...item })),
+    md: layouts.md.map((item) => ({ ...item })),
+    sm: layouts.sm.map((item) => ({ ...item })),
+  }
+}
+
+function clampX(x: number, cols = COLS.xl, w = DEFAULT_W) {
+  return Math.min(Math.max(x, 0), Math.max(cols - w, 0))
+}
+
+function normalizeLayoutItem(item: LayoutItem, breakpoint: BreakpointKey): LayoutItem {
+  const cols = COLS[breakpoint]
+  const safeW = Math.min(Math.max(item.w ?? DEFAULT_W, MIN_W), cols)
+  const safeX = clampX(item.x ?? 0, cols, safeW)
+  const safeH = Math.max(item.h ?? DEFAULT_H, MIN_H)
+  return { ...item, x: safeX, y: item.y ?? 0, w: safeW, h: safeH, minW: MIN_W, minH: MIN_H }
+}
+
+function alignLayouts(
+  layouts: Partial<Record<BreakpointKey, Layout | LayoutItem[]>> | ResponsiveLayouts<BreakpointKey> | undefined,
+  widgets: WidgetConfig[],
+): LayoutMap {
+  const ids = new Set(widgets.map((widget) => widget.id))
+  return (['xl', 'md', 'sm'] as BreakpointKey[]).reduce((acc, breakpoint) => {
+    const base = [...((layouts?.[breakpoint] as LayoutItem[] | Layout | undefined) ?? [])]
+    const filtered = base.filter((item) => ids.has(item.i)).map((item) => normalizeLayoutItem(item, breakpoint))
+    const missing = widgets
+      .filter((widget) => !filtered.some((item) => item.i === widget.id))
+      .map((widget) =>
+        normalizeLayoutItem(
+          { i: widget.id, x: 0, y: Infinity, w: DEFAULT_W, h: DEFAULT_H, minW: MIN_W, minH: MIN_H },
+          breakpoint,
+        ),
+      )
+    acc[breakpoint] = [...filtered, ...missing]
+    return acc
+  }, {} as LayoutMap)
+}
+
+function addWidgetToLayouts(layouts: LayoutMap, widgetId: string, placement?: { breakpoint: BreakpointKey; x: number; y: number }) {
+  const next = cloneLayouts(layouts)
+  ;(['xl', 'md', 'sm'] as BreakpointKey[]).forEach((breakpoint) => {
+    const isPlacement = placement && placement.breakpoint === breakpoint
+    const item = normalizeLayoutItem(
+      {
+        i: widgetId,
+        x: isPlacement ? placement.x : 0,
+        y: isPlacement ? placement.y : Infinity,
+        w: DEFAULT_W,
+        h: DEFAULT_H,
+        minW: MIN_W,
+        minH: MIN_H,
+      },
+      breakpoint,
+    )
+    next[breakpoint] = [...next[breakpoint], item]
+  })
+  return next
+}
+
+function removeWidgetFromLayouts(layouts: LayoutMap, widgetId: string) {
+  return (['xl', 'md', 'sm'] as BreakpointKey[]).reduce((acc, breakpoint) => {
+    acc[breakpoint] = layouts[breakpoint].filter((item) => item.i !== widgetId)
+    return acc
+  }, {} as LayoutMap)
+}
+
+function normalizeSnapshot(snapshot: DashboardSnapshot): DashboardSnapshot {
+  return {
+    widgets: snapshot.widgets,
+    layouts: alignLayouts(snapshot.layouts, snapshot.widgets),
+  }
+}
+
+function columnWidth(containerWidth: number, breakpoint: BreakpointKey) {
+  const cols = COLS[breakpoint]
+  return (containerWidth - GRID_MARGIN[0] * (cols - 1) - GRID_PADDING[0] * 2) / cols
+}
+
+function gridFromPoint(
+  point: { x: number; y: number },
+  rect: DOMRect,
+  breakpoint: BreakpointKey,
+): { x: number; y: number } {
+  const cols = COLS[breakpoint]
+  const colWidth = columnWidth(rect.width, breakpoint)
+  const relativeX = point.x - rect.left - GRID_PADDING[0]
+  const relativeY = point.y - rect.top - GRID_PADDING[1]
+  const x = clampX(Math.floor(relativeX / (colWidth + GRID_MARGIN[0])), cols, DEFAULT_W)
+  const y = Math.max(0, Math.floor(relativeY / (ROW_HEIGHT + GRID_MARGIN[1])))
+  return { x: Number.isFinite(x) ? x : 0, y: Number.isFinite(y) ? y : 0 }
+}
+
+interface PaletteButtonProps {
+  type: WidgetType
+  disabled: boolean
+  onAdd: () => void
+}
+
+function PaletteButton({ type, disabled, onAdd }: PaletteButtonProps) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `palette-${type}`,
+    data: { type },
+    disabled,
+  })
+
+  return (
+    <button
+      ref={setNodeRef}
+      type="button"
+      className={`palette-item ${isDragging ? 'dragging' : ''}`}
+      onClick={onAdd}
+      disabled={disabled}
+      {...attributes}
+      {...listeners}
+    >
+      + {type.toUpperCase()}
+    </button>
+  )
+}
+
 function App() {
   const [rows, setRows] = useState<Row[]>([])
   const [columns, setColumns] = useState<ColumnMeta[]>([])
   const [fileName, setFileName] = useState('')
-
-  const [history, setHistory] = useState<WidgetConfig[][]>([[]])
+  const [history, setHistory] = useState<DashboardSnapshot[]>([initialSnapshot])
   const [historyIndex, setHistoryIndex] = useState(0)
-
   const [filter, setFilter] = useState<FilterState>({ column: '', operator: '=', value: '', valueTo: '' })
   const [theme, setTheme] = useState<Theme>('light')
   const [shareLink, setShareLink] = useState('')
   const [status, setStatus] = useState('Ready.')
+  const [currentBreakpoint, setCurrentBreakpoint] = useState<BreakpointKey>('xl')
 
-  const widgets = useMemo(() => history[historyIndex] ?? [], [history, historyIndex])
+  const canvasRef = useRef<HTMLDivElement | null>(null)
+  const layoutDraftRef = useRef<LayoutMap>(initialSnapshot.layouts)
+  const widgetsRef = useRef<WidgetConfig[]>([])
+
+  const currentSnapshot = history[historyIndex] ?? initialSnapshot
+  const widgets = currentSnapshot.widgets
+  const layouts = currentSnapshot.layouts
+
   const selectedColumn = columns.find((column) => column.name === filter.column)
   const suggestions = useMemo(() => chartSuggestions(columns), [columns])
   const isSharedView = useMemo(() => new URLSearchParams(window.location.search).has('share'), [])
-
-  const setWidgets = (updater: WidgetConfig[] | ((previous: WidgetConfig[]) => WidgetConfig[]), track = true) => {
-    const current = history[historyIndex] ?? []
-    const next = typeof updater === 'function' ? updater(current) : updater
-
-    if (!track) {
-      setHistory((previous) => previous.map((entry, index) => (index === historyIndex ? next : entry)))
-      return
-    }
-
-    const nextHistory = history.slice(0, historyIndex + 1)
-    nextHistory.push(next)
-    setHistory(nextHistory)
-    setHistoryIndex(nextHistory.length - 1)
-  }
 
   const canUndo = historyIndex > 0
   const canRedo = historyIndex < history.length - 1
@@ -254,6 +414,14 @@ function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme
   }, [theme])
+
+  useEffect(() => {
+    widgetsRef.current = widgets
+  }, [widgets])
+
+  useEffect(() => {
+    layoutDraftRef.current = layouts
+  }, [layouts])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -271,6 +439,7 @@ function App() {
           rows,
           columns,
           widgets,
+          layouts,
           fileName,
           filter,
           theme,
@@ -282,18 +451,35 @@ function App() {
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [canUndo, canRedo, rows, columns, widgets, fileName, filter, theme])
+  }, [canUndo, canRedo, rows, columns, widgets, layouts, fileName, filter, theme])
 
   const filteredRows = useMemo(
     () => rows.filter((row) => applyFilter(row, selectedColumn, filter)),
     [rows, selectedColumn, filter],
   )
 
+  const updateDashboard = (producer: (current: DashboardSnapshot) => DashboardSnapshot, track = true) => {
+    setHistory((previous) => {
+      const current = previous[historyIndex] ?? initialSnapshot
+      const next = normalizeSnapshot(producer(current))
+
+      if (!track) {
+        return previous.map((entry, index) => (index === historyIndex ? next : entry))
+      }
+
+      const nextHistory = previous.slice(0, historyIndex + 1)
+      nextHistory.push(next)
+      setHistoryIndex(nextHistory.length - 1)
+      return nextHistory
+    })
+  }
+
   function saveDashboard() {
     const state: DashboardState = {
       rows,
       columns,
       widgets,
+      layouts,
       fileName,
       filter,
       theme,
@@ -303,7 +489,7 @@ function App() {
   }
 
   const loadDashboard = () => {
-    const saved = localStorage.getItem(DASHBOARD_STORAGE_KEY)
+    const saved = localStorage.getItem(DASHBOARD_STORAGE_KEY) ?? localStorage.getItem(LEGACY_STORAGE_KEY)
     if (!saved) {
       setStatus('No saved dashboard found.')
       return
@@ -311,14 +497,15 @@ function App() {
 
     try {
       const parsed = JSON.parse(saved) as DashboardState
+      const restoredWidgets = Array.isArray(parsed.widgets) ? parsed.widgets : []
+      const restoredLayouts = alignLayouts(parsed.layouts, restoredWidgets)
       setRows(Array.isArray(parsed.rows) ? parsed.rows : [])
       setColumns(Array.isArray(parsed.columns) ? parsed.columns : [])
       setFileName(parsed.fileName ?? '')
-      const restored = Array.isArray(parsed.widgets) ? parsed.widgets : []
-      setHistory([restored])
-      setHistoryIndex(0)
       setFilter(parsed.filter ?? { column: '', operator: '=', value: '', valueTo: '' })
       setTheme(parsed.theme === 'dark' ? 'dark' : 'light')
+      setHistory([normalizeSnapshot({ widgets: restoredWidgets, layouts: restoredLayouts })])
+      setHistoryIndex(0)
       setStatus(`Loaded ${new Date().toLocaleTimeString()}`)
     } catch {
       setStatus('Saved dashboard is invalid.')
@@ -356,37 +543,32 @@ function App() {
     })
   }
 
-  const addWidget = (type: WidgetType) => {
+  const addWidget = (type: WidgetType, placement?: { breakpoint: BreakpointKey; x: number; y: number }) => {
     if (!columns.length) {
       setStatus('Upload a dataset first.')
       return
     }
 
-    setWidgets((previous) => [...previous, emptyWidget(type, columns)])
+    updateDashboard((current) => {
+      const widget = emptyWidget(type, columns)
+      const nextLayouts = addWidgetToLayouts(current.layouts, widget.id, placement)
+      return { widgets: [...current.widgets, widget], layouts: nextLayouts }
+    })
     setStatus(`Added ${type} widget.`)
   }
 
   const updateWidget = (id: string, updates: Partial<WidgetConfig>) => {
-    setWidgets((previous) =>
-      previous.map((widget) => (widget.id === id ? { ...widget, ...updates } : widget)),
-    )
+    updateDashboard((current) => ({
+      widgets: current.widgets.map((widget) => (widget.id === id ? { ...widget, ...updates } : widget)),
+      layouts: current.layouts,
+    }))
   }
 
   const removeWidget = (id: string) => {
-    setWidgets((previous) => previous.filter((widget) => widget.id !== id))
-  }
-
-  const moveWidget = (id: string, direction: -1 | 1) => {
-    setWidgets((previous) => {
-      const index = previous.findIndex((widget) => widget.id === id)
-      if (index < 0) return previous
-      const nextIndex = index + direction
-      if (nextIndex < 0 || nextIndex >= previous.length) return previous
-      const reordered = [...previous]
-      const [moved] = reordered.splice(index, 1)
-      reordered.splice(nextIndex, 0, moved)
-      return reordered
-    })
+    updateDashboard((current) => ({
+      widgets: current.widgets.filter((widget) => widget.id !== id),
+      layouts: removeWidgetFromLayouts(current.layouts, id),
+    }))
   }
 
   const createShareLink = async () => {
@@ -525,6 +707,71 @@ function App() {
         </PieChart>
       </ResponsiveContainer>
     )
+  }
+
+  const { setNodeRef, isOver } = useDroppable({
+    id: 'canvas-drop',
+    disabled: isSharedView || !columns.length,
+  })
+
+  const keyboardCoordinates: KeyboardCoordinateGetter = (event, { currentCoordinates }) => {
+    const rect = canvasRef.current?.getBoundingClientRect()
+    const colWidth = rect ? columnWidth(rect.width, currentBreakpoint) + GRID_MARGIN[0] : 80
+    const rowStep = ROW_HEIGHT + GRID_MARGIN[1]
+    const coords = currentCoordinates ?? { x: GRID_PADDING[0], y: GRID_PADDING[1] }
+
+    if (event.code === 'ArrowRight') return { ...coords, x: coords.x + colWidth }
+    if (event.code === 'ArrowLeft') return { ...coords, x: coords.x - colWidth }
+    if (event.code === 'ArrowDown') return { ...coords, y: coords.y + rowStep }
+    if (event.code === 'ArrowUp') return { ...coords, y: coords.y - rowStep }
+    return undefined
+  }
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: keyboardCoordinates }),
+  )
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const type = event.active.data.current?.type as WidgetType | undefined
+    if (!type || isSharedView) return
+    if (!columns.length) {
+      setStatus('Upload a dataset first.')
+      return
+    }
+    if (event.over?.id !== 'canvas-drop') {
+      setStatus('Drag onto the canvas to place a widget.')
+      return
+    }
+
+    const initial = event.active.rect.current?.initial
+    const containerRect = canvasRef.current?.getBoundingClientRect()
+
+    if (!initial || !containerRect) {
+      addWidget(type)
+      return
+    }
+
+    const dropCenter = {
+      x: initial.left + event.delta.x + initial.width / 2,
+      y: initial.top + event.delta.y + initial.height / 2,
+    }
+
+    const { x, y } = gridFromPoint(dropCenter, containerRect, currentBreakpoint)
+    addWidget(type, { breakpoint: currentBreakpoint, x, y })
+  }
+
+  const handleLayoutChange = (_layout: Layout, allLayouts: ResponsiveLayouts<BreakpointKey>) => {
+    layoutDraftRef.current = alignLayouts(allLayouts, widgetsRef.current)
+  }
+
+  const commitLayoutChange = () => {
+    const nextLayouts = layoutDraftRef.current
+    updateDashboard((current) => ({
+      widgets: current.widgets,
+      layouts: alignLayouts(nextLayouts, current.widgets),
+    }))
+    setStatus('Layout updated.')
   }
 
   return (
@@ -708,120 +955,157 @@ function App() {
       <section className="panel">
         <h2>3) Dashboard Builder</h2>
 
-        <div className="palette" aria-label="Widget palette">
-          {widgetPalette.map((type) => (
-            <button key={type} type="button" onClick={() => addWidget(type)} disabled={isSharedView || !columns.length}>
-              + {type.toUpperCase()}
-            </button>
-          ))}
-          <button type="button" onClick={() => canUndo && setHistoryIndex((index) => index - 1)} disabled={!canUndo}>
-            Undo
-          </button>
-          <button type="button" onClick={() => canRedo && setHistoryIndex((index) => index + 1)} disabled={!canRedo}>
-            Redo
-          </button>
-        </div>
-
-        {!widgets.length && <p className="placeholder">No widgets yet. Add a widget from the palette.</p>}
-
-        <div className="canvas">
-          {widgets.map((widget, index) => (
-            <article key={widget.id} className="widget-card">
-              <header>
-                <input
-                  value={widget.title}
-                  onChange={(event) => updateWidget(widget.id, { title: event.target.value })}
-                  disabled={isSharedView}
-                  aria-label="Widget title"
-                />
-
-                <div className="widget-actions">
-                  <button type="button" onClick={() => moveWidget(widget.id, -1)} disabled={index === 0 || isSharedView}>
-                    ↑
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => moveWidget(widget.id, 1)}
-                    disabled={index === widgets.length - 1 || isSharedView}
-                  >
-                    ↓
-                  </button>
-                  <button type="button" onClick={() => removeWidget(widget.id)} disabled={isSharedView}>
-                    Remove
-                  </button>
-                </div>
-              </header>
-
-              <div className="config-grid">
-                <label>
-                  Type
-                  <select
-                    value={widget.type}
-                    onChange={(event) => updateWidget(widget.id, { type: event.target.value as WidgetType })}
-                    disabled={isSharedView}
-                  >
-                    {widgetPalette.map((type) => (
-                      <option key={type} value={type}>
-                        {type}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                {widget.type !== 'kpi' && (
-                  <label>
-                    X Axis
-                    <select
-                      value={widget.xAxis}
-                      onChange={(event) => updateWidget(widget.id, { xAxis: event.target.value })}
-                      disabled={isSharedView}
-                    >
-                      <option value="">Select</option>
-                      {columns.map((column) => (
-                        <option key={column.name} value={column.name}>
-                          {column.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-
-                <label>
-                  Y / Metric
-                  <select
-                    value={widget.yAxis}
-                    onChange={(event) => updateWidget(widget.id, { yAxis: event.target.value })}
-                    disabled={isSharedView}
-                  >
-                    <option value="">Select</option>
-                    {columns.map((column) => (
-                      <option key={column.name} value={column.name}>
-                        {column.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label>
-                  Aggregation
-                  <select
-                    value={widget.aggregation}
-                    onChange={(event) => updateWidget(widget.id, { aggregation: event.target.value as Aggregation })}
-                    disabled={isSharedView}
-                  >
-                    {aggregations.map((mode) => (
-                      <option key={mode} value={mode}>
-                        {mode}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+        <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+          <div className="builder-shell">
+            <div className="palette" aria-label="Widget palette">
+              <div className="palette-grid">
+                {widgetPalette.map((type) => (
+                  <PaletteButton
+                    key={type}
+                    type={type}
+                    disabled={isSharedView || !columns.length}
+                    onAdd={() => addWidget(type)}
+                  />
+                ))}
               </div>
+              <p className="palette-hint">
+                Drag from the palette onto the grid. Keyboard: focus a tile, press Space/Enter, use arrows, press Space to
+                drop.
+              </p>
+              <div className="palette-actions">
+                <button type="button" onClick={() => canUndo && setHistoryIndex((index) => index - 1)} disabled={!canUndo}>
+                  Undo
+                </button>
+                <button type="button" onClick={() => canRedo && setHistoryIndex((index) => index + 1)} disabled={!canRedo}>
+                  Redo
+                </button>
+              </div>
+            </div>
 
-              {renderChart(widget)}
-            </article>
-          ))}
-        </div>
+            <div
+              className={`canvas ${isOver ? 'canvas-over' : ''}`}
+              ref={(node) => {
+                setNodeRef(node)
+                canvasRef.current = node
+              }}
+            >
+              {!widgets.length && <p className="placeholder">Drag widgets here or click a palette button to start.</p>}
+
+              <ResponsiveGridLayout
+                className="grid-layout"
+                layouts={layouts}
+                breakpoints={BREAKPOINTS}
+                cols={COLS}
+                rowHeight={ROW_HEIGHT}
+                margin={GRID_MARGIN}
+                containerPadding={GRID_PADDING}
+                compactType="vertical"
+                isDraggable={!isSharedView && !!columns.length}
+                isResizable={!isSharedView && !!columns.length}
+                preventCollision={false}
+                onLayoutChange={handleLayoutChange}
+                onDragStop={commitLayoutChange}
+                onResizeStop={commitLayoutChange}
+                onBreakpointChange={(next: string) => setCurrentBreakpoint(next as BreakpointKey)}
+                draggableHandle=".widget-drag-handle"
+                measureBeforeMount
+                useCSSTransforms
+              >
+                {widgets.map((widget) => (
+                  <div key={widget.id} className="widget-card">
+                    <header>
+                      <div className="widget-title-row">
+                        <span className="widget-drag-handle" aria-hidden="true">
+                          ⋮⋮
+                        </span>
+                        <input
+                          value={widget.title}
+                          onChange={(event) => updateWidget(widget.id, { title: event.target.value })}
+                          disabled={isSharedView}
+                          aria-label="Widget title"
+                        />
+                      </div>
+
+                      <div className="widget-actions">
+                        <button type="button" onClick={() => removeWidget(widget.id)} disabled={isSharedView}>
+                          Remove
+                        </button>
+                      </div>
+                    </header>
+
+                    <div className="config-grid">
+                      <label>
+                        Type
+                        <select
+                          value={widget.type}
+                          onChange={(event) => updateWidget(widget.id, { type: event.target.value as WidgetType })}
+                          disabled={isSharedView}
+                        >
+                          {widgetPalette.map((type) => (
+                            <option key={type} value={type}>
+                              {type}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      {widget.type !== 'kpi' && (
+                        <label>
+                          X Axis
+                          <select
+                            value={widget.xAxis}
+                            onChange={(event) => updateWidget(widget.id, { xAxis: event.target.value })}
+                            disabled={isSharedView}
+                          >
+                            <option value="">Select</option>
+                            {columns.map((column) => (
+                              <option key={column.name} value={column.name}>
+                                {column.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
+
+                      <label>
+                        Y / Metric
+                        <select
+                          value={widget.yAxis}
+                          onChange={(event) => updateWidget(widget.id, { yAxis: event.target.value })}
+                          disabled={isSharedView}
+                        >
+                          <option value="">Select</option>
+                          {columns.map((column) => (
+                            <option key={column.name} value={column.name}>
+                              {column.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label>
+                        Aggregation
+                        <select
+                          value={widget.aggregation}
+                          onChange={(event) => updateWidget(widget.id, { aggregation: event.target.value as Aggregation })}
+                          disabled={isSharedView}
+                        >
+                          {aggregations.map((mode) => (
+                            <option key={mode} value={mode}>
+                              {mode}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+
+                    {renderChart(widget)}
+                  </div>
+                ))}
+              </ResponsiveGridLayout>
+            </div>
+          </div>
+        </DndContext>
       </section>
 
       {shareLink && (
