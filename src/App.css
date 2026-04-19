@@ -207,11 +207,21 @@ label {
   padding: 0.5rem;
   background: var(--surface);
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  position: relative;
 }
 
 .canvas-over {
   border-color: #4f46e5;
   box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+}
+
+.drop-preview {
+  position: absolute;
+  pointer-events: none;
+  border: 2px dashed #4f46e5;
+  background: rgba(79, 70, 229, 0.08);
+  border-radius: 0.7rem;
+  z-index: 2;
 }
 
 .grid-layout {
